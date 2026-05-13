@@ -1,62 +1,56 @@
-# mizuochi-cmd LP画像置き場（汎用）
+# mizuochi-cmd LP画像置き場
 
-> **このリポジトリは「カーブス専用」ではなく、SquadBeyond配信用の汎用LP画像置き場として運用しています。**
-> 由来はカーブス案件のために最初に作られたため `cvs-lp-images` という名前ですが、現在は複数案件の画像が共存しています。
+> このリポジトリは元々カーブス案件用に作られたためrepo名が `cvs-lp-images` ですが、
+> 現在は複数案件の画像が混在する運用も可能です。案件ごとに別repoを作ってもOKです。
 
-## なぜこのrepoを使うのか
+## 🟢 重要：SquadBeyondにおける画像URLの仕様（2026-05-13 検証確定）
 
-SquadBeyond（SB）には外部画像ドメインに関する事実上の許可制があり、過去に使った既存ドメインの絶対URLは `data-src` に保持されますが、新規ドメイン（新規GitHub Pages repo）は SBが相対パスに強制書き換えして配信できなくなります。
+**SBは「ドメイン許可リスト」を持っていない。代わりに `article_uid` ごとに「最初の入稿時の画像URL状態」を記憶する仕様。**
 
-そのため、新規案件ごとに repo を作るのではなく、**実績のあるこの repo を全案件で使い回す**運用にしています。
+### 鉄則
 
-## ディレクトリ構造
+新規SB記事 (article) を作ったら、**最初の `uploadVersionHtml` で必ず最終形態の絶対URL HTML** を送ること。
 
+- ✅ `<img src="https://mizuochi-cmd.github.io/<repo>/images/<案件>/<file>.png">` で最初から入稿
+- ❌ 相対パス `<img src="images/<file>.png">` を1度でも入稿すると、その記事は履歴ロックされてGitHub Pages運用ができなくなる
+- ❌ `upload_external_photos=true` も履歴汚染するので使わない
+
+履歴ロックされた記事は復活不能。`createAbTestArticle` で**新規記事を作成し、最初から絶対URL HTMLでupload**するのが唯一の対処法。
+
+詳細: `.claude/knowledge/article-lp-deployment-playbook.md` の section 3-1-CRITICAL
+
+## ディレクトリ構造の方針
+
+### 方針A: 案件ごとに別repoを作る（クリーン）
+```
+cvs-lp-images/     # カーブス専用
+dio-lp-images/     # DIOクリニック専用
+sponge-lp-images/  # スポンジ案件専用
+...
+```
+
+### 方針B: 共通repoに混在（このrepoの現状）
 ```
 cvs-lp-images/
 └── images/
-    ├── lp-A-v3/           # カーブス LP-A v3
-    ├── lp-B-v2/           # カーブス LP-B v2
-    ├── lp-C/              # カーブス LP-C
-    ├── lp-D-v2/           # カーブス LP-D v2
-    ├── lp-E/ ... lp-J/    # カーブス LP-E〜J
-    ├── dio-c/             # ⚠️ 暫定flat: DIOクリニック 記事C（初回案件）
-    │
-    └── <案件slug>/        # 🆕 新規案件は階層構造で配置
+    ├── lp-A-v3/ ... lp-J/    # カーブス（フラット階層・既存）
+    ├── dio-c/                # DIOクリニック 記事C（暫定）
+    └── <案件slug>/           # 新規はこの階層から
         └── <バリエーション>/
-            └── *.png
 ```
 
-### 新規案件の追加ルール（2026-05-13〜）
+どちらでもSB上の挙動は同じ。**ドメインじゃなく「記事の入稿履歴」が問題なので、repo構成は管理しやすい方を選んでOK**。
 
-新規案件は以下の階層構造で配置すること:
-
-```
-images/
-└── <案件slug>/             # 例: dio-clinic, sponge-x, ...
-    ├── article-a/           # 記事LP A
-    ├── article-b/           # 記事LP B
-    └── article-c/           # 記事LP C
-        ├── cover.png
-        ├── home.png
-        └── ...
-```
-
-#### HTML側の参照URL
-
-```html
-<img src="https://mizuochi-cmd.github.io/cvs-lp-images/images/dio-clinic/article-a/cover.png">
-```
-
-## 既存案件のディレクトリ一覧
+## このrepoの既存案件一覧
 
 | 案件 | パス | 用途 |
 |---|---|---|
-| カーブス | `images/lp-A-v3/` 〜 `images/lp-J/` | フラット階層・既存。動いてるので動かさない |
+| カーブス | `images/lp-A-v3/` 〜 `images/lp-J/` | フラット階層・既存。動いているので動かさない |
 | DIOクリニック（記事C） | `images/dio-c/` | フラット階層・初回案件のため暫定 |
 
 ## 反映時間
 
-`git push` 後、GitHub Pages のビルドキューを経て **1〜2分で反映** されます。Pages のステータスは `https://github.com/mizuochi-cmd/cvs-lp-images/deployments` で確認可能。
+`git push` 後、GitHub Pages のビルドキューを経て **1〜2分で反映**。
 
 content-length が一致するまで待つコマンド:
 ```bash
@@ -64,7 +58,13 @@ LOCAL_SIZE=$(stat -f %z images/<案件>/<file>.png)
 until [ "$(curl -sI "https://mizuochi-cmd.github.io/cvs-lp-images/images/<案件>/<file>.png?cb=$(date +%s)" | grep -i 'content-length' | awk '{print $2}' | tr -d '\r\n')" = "$LOCAL_SIZE" ]; do sleep 15; done
 ```
 
-## SBが新規ドメインを弾く件の参考リンク
+## 入稿時の事前検証
 
-- 詳細手順: `.claude/knowledge/article-lp-deployment-playbook.md` の section 3-1-CRITICAL
-- 2026-05-13 DIO案件で発覚・対処済み
+```bash
+# 1. GitHub Pages 側で200か確認
+curl -sI "https://mizuochi-cmd.github.io/<repo>/images/<案件>/<file>.png" | head -1
+
+# 2. uploadVersionHtml 後に getArticleHtml で data-src を確認
+# data-src="https://..." → 成功
+# data-src="images/..." → 履歴ロック発生（新規記事作り直し）
+```
